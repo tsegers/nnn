@@ -162,7 +162,7 @@
 #define READLINE_MAX 256
 #define FILTER '/'
 #define RFILTER '\\'
-#define CASE ':'
+#define PRE ':'
 #define MSGWAIT '$'
 #define SELECT ' '
 #define REGEX_MAX 48
@@ -2413,14 +2413,28 @@ static int xstrverscasecmp(const char * const s1, const char * const s2)
 	}
 }
 
+char *strprestr(const char *haystack, const char *needle)
+{
+    size_t lenneedle = strlen(needle);
+    size_t lenhaystack = strlen(haystack);
+
+    if (lenhaystack < lenneedle)
+        return NULL;
+
+    if (strncasecmp(needle, haystack, lenneedle))
+        return NULL;
+
+    return (char *) 1;
+}
+
 static int (*namecmpfn)(const char * const s1, const char * const s2) = &xstricmp;
 
-static char * (*fnstrstr)(const char *haystack, const char *needle) = &strcasestr;
+static char * (*fnstrstr)(const char *haystack, const char *needle) = &strprestr;
 #ifdef PCRE
 static const unsigned char *tables;
-static int pcreflags = PCRE_NO_AUTO_CAPTURE | PCRE_EXTENDED | PCRE_CASELESS | PCRE_UTF8;
+static int pcreflags = PCRE_NO_AUTO_CAPTURE | PCRE_EXTENDED | PCRE_UTF8;
 #else
-static int regflags = REG_NOSUB | REG_EXTENDED | REG_ICASE;
+static int regflags = REG_NOSUB | REG_EXTENDED;
 #endif
 
 #ifdef PCRE
@@ -2684,7 +2698,7 @@ static void showfilterinfo(void)
 
 	snprintf(info + i, REGEX_MAX - i - 1, "  %s [/], %s [:]",
 		 (cfg.regex ? "regex" : "str"),
-		 ((fnstrstr == &strcasestr) ? "ic" : "noic"));
+		 ((fnstrstr == &strprestr) ? "pre" : "nopre"));
 
 	clearinfoln();
 	mvaddstr(xlines - 2, xcols - xstrlen(info), info);
@@ -2870,6 +2884,7 @@ static int filterentries(char *path, char *lastname)
 					*ch = ';';
 				}
 			}
+            cfg.filtermode = 0;
 			goto end;
 		}
 
@@ -2906,13 +2921,8 @@ static int filterentries(char *path, char *lastname)
 			}
 
 			/* Toggle case-sensitivity */
-			if (*ch == CASE) {
-				fnstrstr = (fnstrstr == &strcasestr) ? &strstr : &strcasestr;
-#ifdef PCRE
-				pcreflags ^= PCRE_CASELESS;
-#else
-				regflags ^= REG_ICASE;
-#endif
+			if (*ch == PRE) {
+				fnstrstr = (fnstrstr == &strcasestr) ? &strprestr : &strcasestr;
 				showfilter(ln);
 				continue;
 			}
@@ -2944,14 +2954,6 @@ static int filterentries(char *path, char *lastname)
 		if (matches(pln) == -1) {
 			showfilter(ln);
 			continue;
-		}
-
-		/* If the only match is a dir, auto-select and cd into it */
-		if (ndents == 1 && cfg.filtermode
-		    && cfg.autoselect && (pdents[0].flags & DIR_OR_LINK_TO_DIR)) {
-			*ch = KEY_ENTER;
-			cur = 0;
-			goto end;
 		}
 
 		/*
